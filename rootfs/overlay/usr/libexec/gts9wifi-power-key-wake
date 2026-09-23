@@ -15,6 +15,17 @@ set -u
 display_config=org.gnome.Mutter.DisplayConfig
 display_path=/org/gnome/Mutter/DisplayConfig
 
+lowpower=/usr/libexec/gts9wifi-power-key-lowpower
+
+# The gesture goes first: while it is armed the controller reports the gesture
+# instead of ordinary touches, and ordinary touches are what is wanted once the
+# display is back.  A kernel without the attribute yet is skipped rather than
+# letting the failed redirection reach the journal.
+gesture=/sys/bus/i2c/devices/10-0049/wake_gesture
+if [ -w "$gesture" ]; then
+	printf '%s' 0 >"$gesture"
+fi
+
 mode=$(busctl --user get-property "$display_config" "$display_path" \
 	"$display_config" PowerSaveMode 2>/dev/null) || exit 0
 
@@ -26,5 +37,9 @@ case "$mode" in
 		"$display_config" PowerSaveMode i 0 2>/dev/null || true
 	;;
 esac
+
+# Awake again, so the wireless link comes back out of power save: the display is
+# back and the tablet is being used, where the latency would be felt.
+"$lowpower" off 2>/dev/null || true
 
 exit 0

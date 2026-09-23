@@ -1,0 +1,72 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+#
+# The low-power half of sleep mode: put the wireless link to sleep with the
+# display.
+#
+# Sleep mode keeps the system running on purpose, so that the tablet stays
+# reachable over Wi-Fi where a suspend would drop it.  With the screen off that
+# leaves the radio as the largest thing still awake, and by default the driver
+# keeps the receiver on all the time.  Power save makes it doze between the
+# access point's beacons and wake for what the access point has buffered for it.
+# Measured on this tablet, interleaved, display off: 1116 mW with power save off
+# against 806 mW with it on, so about 310 mW - a third of what sleep mode draws -
+# for a gateway ping of 15.1 ms instead of 4.9 ms.
+#
+# What the user had is put back when the display comes back, so this only ever
+# applies while the tablet is asleep.  Running it again is a no-op, which is what
+# lets the watcher call it every time round: the driver forgets the setting when
+# the link reconnects, so re-applying it is how a reconnect while asleep is
+# caught.
+#
+# Everything else that looked worth trying was measured and left alone - see the
+# sleep mode section of docs/Device-Controls.md.
+set -u
+
+state_dir=/var/lib/gts9wifi
+saved=$state_dir/sleep-saved-wifi-powersave
+
+case "${1:-}" in
+on | off) want=$1 ;;
+*)
+	echo "usage: $0 on|off" >&2
+	exit 2
+	;;
+esac
+
+# Writes need root; the port grants the user passwordless sudo, and -n keeps a
+# script that has no terminal from ever hanging on a password prompt.
+sudo_iw() {
+	sudo -n iw dev "$1" set power_save "$2" 2>/dev/null || true
+}
+
+# The interface NetworkManager has the connection on, so that a rename or a
+# second radio does not need this changed too.
+iface=$(nmcli -t -f DEVICE,TYPE device 2>/dev/null |
+	awk -F: '$2 == "wifi" { print $1; exit }')
+[ -n "$iface" ] || exit 0
+
+read_state() {
+	iw dev "$iface" get power_save 2>/dev/null | awk '{ print $NF }'
+}
+
+current=$(read_state)
+[ "$current" = "$want" ] && exit 0
+
+[ -d "$state_dir" ] || mkdir -p "$state_dir" 2>/dev/null || true
+
+if [ "$want" = on ]; then
+	# First write wins, so what is kept is the user's own setting and never the
+	# one this script applied itself.
+	[ -e "$saved" ] || printf '%s\n' "$current" >"$saved" 2>/dev/null || true
+	sudo_iw "$iface" on
+else
+	# Nothing here changed it, or it has already been put back.
+	[ -e "$saved" ] || exit 0
+	restore=$(cat "$saved" 2>/dev/null)
+	rm -f "$saved" 2>/dev/null || true
+	[ -n "$restore" ] || exit 0
+	sudo_iw "$iface" "$restore"
+fi
+
+exit 0

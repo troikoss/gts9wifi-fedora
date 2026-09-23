@@ -22,8 +22,21 @@
 set -u
 
 helper=/usr/libexec/gts9wifi-device-control
+lowpower=/usr/libexec/gts9wifi-power-key-lowpower
 display_config=org.gnome.Mutter.DisplayConfig
 display_path=/org/gnome/Mutter/DisplayConfig
+
+# The controller only notices a touch through its double-tap gesture while the
+# display is off, so the gesture follows the display as well.  The sleep and wake
+# actions arm and disarm it straight away; this is what catches a blank or a wake
+# that came from GNOME instead.  A kernel without the attribute yet is simply
+# skipped: [ -w ] keeps the failed redirection out of the journal.
+gesture=/sys/bus/i2c/devices/10-0049/wake_gesture
+
+gesture_arm() {
+	[ -w "$gesture" ] && printf '%s' "$1" >"$gesture"
+	true
+}
 
 # The display is off in more than one way (0 on, 1 standby, 2 suspend, 3 off),
 # and -1 means the output cannot be blanked that way at all.
@@ -37,9 +50,24 @@ while :; do
 	*) next= ;;
 	esac
 
+	# The wireless link goes to sleep with the display too, so that a sleeping
+	# tablet draws as little as it can while still being reachable.  Unlike the
+	# key this is not done only on a change: the driver drops power save when
+	# the link reconnects, and the script returns at once when there is nothing
+	# to change, so running it every time round is both free and what covers a
+	# reconnect while asleep.
+	case "$mode" in
+	*i\ 0) "$lowpower" off 2>/dev/null || true ;;
+	*i\ [123]) "$lowpower" on 2>/dev/null || true ;;
+	esac
+
 	if [ -n "$next" ] && [ "$next" != "$want" ]; then
 		if "$helper" power-key-command "$next" 2>/dev/null; then
 			want=$next
+			case "$next" in
+			wake) gesture_arm 1 ;;
+			sleep) gesture_arm 0 ;;
+			esac
 		fi
 	fi
 

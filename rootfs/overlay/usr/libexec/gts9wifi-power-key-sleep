@@ -15,8 +15,24 @@
 # survive, where a suspend would drop both.
 set -u
 
+# The tablet keeps running, so its wireless link stays up: put that link to sleep
+# as well, both here and, for the case where no power key is involved, from the
+# watcher.  The wake action puts it back.
+lowpower=/usr/libexec/gts9wifi-power-key-lowpower
+
 display_config=org.gnome.Mutter.DisplayConfig
 display_path=/org/gnome/Mutter/DisplayConfig
+
+# With the display off the controller only notices a touch through its
+# double-tap gesture, and the wake key it reports is what brings the display
+# back.  The gesture is armed here and disarmed on the way back; the watcher
+# keeps it in step with the display afterwards.  It does nothing unless double
+# tap to wake is on, or if this kernel does not have the attribute yet.
+gesture=/sys/bus/i2c/devices/10-0049/wake_gesture
+gesture_arm() {
+	[ -w "$gesture" ] && printf '%s' "$1" >"$gesture"
+	true
+}
 
 display_power() {
 	busctl --user get-property "$display_config" "$display_path" \
@@ -29,8 +45,10 @@ display_power() {
 # again, or the tablet could not be woken with the power button.
 case "$(display_power)" in
 *i\ [123])
+	gesture_arm 0
 	busctl --user set-property "$display_config" "$display_path" \
 		"$display_config" PowerSaveMode i 0 2>/dev/null || true
+	"$lowpower" off 2>/dev/null || true
 	exit 0
 	;;
 esac
@@ -48,5 +66,8 @@ case "$(display_power)" in
 		"$display_config" PowerSaveMode i 3 2>/dev/null || true
 	;;
 esac
+
+gesture_arm 1
+"$lowpower" on 2>/dev/null || true
 
 exit 0

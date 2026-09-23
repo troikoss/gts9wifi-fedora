@@ -44,12 +44,13 @@ power_key_path=/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/
 power_key_schema=org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$power_key_path
 power_key_command=/usr/libexec/gts9wifi-power-key-sleep
 power_key_wake_command=/usr/libexec/gts9wifi-power-key-wake
+lowpower_command=/usr/libexec/gts9wifi-power-key-lowpower
 
 # name|group|label|description|default|target|kind
 CONTROLS='
 double-tap-to-wake|Touchscreen|Double tap to wake|Wake the tablet from suspend by double tapping the screen.|1|/sys/bus/i2c/devices/10-0049/double_tap_to_wake|sysfs
 fast-charge|Power|Fast charging|Charges the battery faster by drawing more power from your charger. A 5 A USB-C cable is recommended.|0|/sys/bus/i2c/devices/6-0049/fast_charge|sysfs
-power-button|Power|Sleep instead of suspend|What the power button does. On turns the screen off and locks the tablet but leaves it running, so Wi-Fi and downloads carry on and the tablet stays reachable. Off suspends the tablet, which is the stock behaviour but drops it off the network until you wake it.|0|power-button|power-button
+power-button|Power|Sleep instead of suspend|What the power button does. On turns the screen off and locks the tablet but leaves it running, so Wi-Fi and downloads carry on and the tablet stays reachable; while the screen is off the wireless link goes into power save, which costs a few tens of milliseconds of latency on the network for about a third less power. Off suspends the tablet, which is the stock behaviour but drops it off the network until you wake it.|0|power-button|power-button
 '
 
 usage() {
@@ -230,6 +231,11 @@ power_button_sleep_on() {
 
 # Put the session back to suspending on the power button.
 power_button_sleep_off() {
+	# Before the session check: leaving sleep mode has to take the wireless
+	# link out of power save whether or not there is a session to talk to, and
+	# the watcher that would otherwise do it is stopped just below.
+	"$lowpower_command" off 2>/dev/null || true
+
 	have_session || return 0
 
 	power_key_watch stop

@@ -74,7 +74,7 @@ the system running instead:
 |---|---|---|
 | Power button | suspends the tablet | locks the session and turns the screen off |
 | Screen | off | off |
-| Wi-Fi, ssh, downloads | dropped until woken | carry on |
+| Wi-Fi, ssh, downloads | dropped until woken | carry on, with the link in power save |
 | Sitting idle afterwards | suspends after the timeout in Settings (5 minutes on this port) | never suspends |
 
 Sleeping is a lock rather than a suspend: the session is locked and the screen is turned off,
@@ -91,13 +91,33 @@ turns on. It is needed because one action cannot do both: by the time an action 
 display may already be back, and sleeping it again would leave the tablet impossible to wake
 with the power button.
 
-One limit of sleeping: on GNOME a *touch* does not wake the display — keyboard and pointer
-input do — so double-tap-to-wake applies to a suspended tablet, not to a sleeping one. Use
-the power button, or any key, to wake a sleeping tablet.
+One note on waking a sleeping tablet: while the display is off the touchscreen is put into
+its double-tap gesture mode, so a double tap brings the screen back — GNOME does not wake the
+display on an ordinary touch, only on keyboard, pointer or gesture input. The power button
+wakes it as well.
 
 Because "keeps running" has to include staying awake on its own, this switch also sets the
 idle suspend timeout to *never* while it is on. Your own timeout is saved and put back when
 you switch off again.
+
+Sleeping also means the largest thing still awake is the wireless link, so while the screen is
+off the Wi-Fi driver goes into power save: it dozes between the access point's beacons and
+wakes for what the access point has buffered for it. On this tablet that is worth about
+**310 mW, a third of what sleep mode draws** — measured with the display off and interleaved,
+1116 mW against 806 mW — for a gateway ping of 15 ms instead of 5 ms. Your own setting is
+saved and put back as soon as the display comes back, and switching this switch off puts it
+back too, so it only ever applies while the tablet is asleep. `/usr/libexec/gts9wifi-power-key-watch`
+re-applies it every time round rather than only on a change, because the driver forgets it
+when the link reconnects.
+
+Measured and deliberately left alone, so that nobody has to try them again: Bluetooth (nothing
+connected and not discoverable; powering the controller off changed nothing measurable),
+capping the CPU below its idle frequency (24 mW), PCIe ASPM (already enabled on the Wi-Fi
+link), the watcher's two-second poll (below the noise) and the touch controller's idle
+interrupts (the same whether its gesture is on or off). Two things stay on purpose: the USB
+PHY is held on because it is this port's recovery path, and the ADSP cannot be stopped and
+restarted safely. A suspended tablet still draws far less than a sleeping one — a sleeping
+tablet is paying for the network it is keeping.
 
 One limit: the setting is a per-user GNOME setting, so it governs the power key inside a
 session. At the login screen no user session owns that key, so logind's own action applies
