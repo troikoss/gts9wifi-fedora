@@ -163,8 +163,11 @@ power_key_apply() { # power_key_apply <command>
 	power_key_list_update add
 }
 
-# The watcher keeps the binding's lock-screen registration in step with the
-# display; it only has anything to do while sleep mode is on.
+# The two sleep-mode services: the watcher keeps the power key pointed at the
+# action that suits the display, and the gesture listener turns the touchscreen's
+# double tap into the same wake - the desktop drops keys that come from a
+# touchscreen, so nothing else would see the gesture.  Both only have anything to
+# do while sleep mode is on.
 power_key_watch() { # power_key_watch start|stop
 	have_session || return 0
 	command -v systemctl >/dev/null 2>&1 || return 0
@@ -172,8 +175,12 @@ power_key_watch() { # power_key_watch start|stop
 	start)
 		systemctl --user daemon-reload 2>/dev/null || true
 		systemctl --user enable --now gts9wifi-power-key-watch.service 2>/dev/null || true
+		systemctl --user enable --now gts9wifi-wake-gesture.service 2>/dev/null || true
 		;;
-	stop) systemctl --user disable --now gts9wifi-power-key-watch.service 2>/dev/null || true ;;
+	stop)
+		systemctl --user disable --now gts9wifi-power-key-watch.service 2>/dev/null || true
+		systemctl --user disable --now gts9wifi-wake-gesture.service 2>/dev/null || true
+		;;
 	esac
 }
 

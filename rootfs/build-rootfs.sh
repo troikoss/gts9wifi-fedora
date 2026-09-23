@@ -60,7 +60,7 @@ dnf -y --installroot="$rootfs" --releasever="$fedora_release" \
     @core \
     NetworkManager NetworkManager-wifi wpa_supplicant \
     openssh-server openssh-clients \
-    sudo chrony zram-generator python3 \
+    sudo chrony zram-generator python3 python3-evdev \
     bluez bluez-tools \
     qrtr \
     alsa-ucm alsa-utils dtc \

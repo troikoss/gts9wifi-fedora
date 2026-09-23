@@ -86,15 +86,18 @@ prompt.
 
 The power key does both jobs, and which action it runs follows the display: while the screen
 is on it sleeps the tablet, including at the lock screen, and while the screen is off it wakes
-it. That split lives in `/usr/libexec/gts9wifi-power-key-watch`, a user service this switch
-turns on. It is needed because one action cannot do both: by the time an action runs the
+it. That split lives in `/usr/libexec/gts9wifi-power-key-watch`, one of the user services this
+switch turns on. It is needed because one action cannot do both: by the time an action runs the
 display may already be back, and sleeping it again would leave the tablet impossible to wake
 with the power button.
 
 One note on waking a sleeping tablet: while the display is off the touchscreen is put into
-its double-tap gesture mode, so a double tap brings the screen back — GNOME does not wake the
-display on an ordinary touch, only on keyboard, pointer or gesture input. The power button
-wakes it as well.
+its double-tap gesture mode, so a double tap brings the screen back. That needs help, because
+the desktop ignores both an ordinary touch and the `KEY_WAKEUP` the driver reports for the
+gesture — key events from a touchscreen device are dropped before they reach anything that
+could act on them. `/usr/libexec/gts9wifi-wake-gesture`, the second user service this switch
+turns on, reads the gesture straight from the touchscreen's event node and runs the same wake
+action the power button does. The power button wakes it as well.
 
 Because "keeps running" has to include staying awake on its own, this switch also sets the
 idle suspend timeout to *never* while it is on. Your own timeout is saved and put back when

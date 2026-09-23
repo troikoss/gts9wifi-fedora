@@ -1,0 +1,116 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: MIT
+#
+# Hand the touchscreen's double tap to the desktop.
+#
+# Sleep mode keeps the SoC running and blanks only the panel, so the touchscreen
+# driver arms its double-tap gesture through wake_gesture.  When the controller
+# reports a tap the driver emits KEY_WAKEUP, which is exactly right and still
+# useless here: the compositor drops every key that comes from a touchscreen
+# device, so nothing on the desktop sees it and the display stays off.  A plain
+# touch is no better, because GNOME deliberately does not count touch input as
+# the activity that unblanks.
+#
+# So the gesture is picked up here, straight from the event node, and handed to
+# the same wake action the power key runs while the display is off.  That action
+# is the one thing known to bring the panel back reliably on this port: it
+# unblanks through Mutter and does not depend on gnome-settings-daemon's idle
+# state machine, which can be left out of step by a blank we did ourselves.
+#
+# Only touchscreens are listened to - a device reporting KEY_WAKEUP *and* touch
+# axes - because the power key also reports KEY_WAKEUP and a press of it must
+# never be answered with a wake.
+#
+# The session is left locked; waking is not unlocking.
+
+import glob
+import select
+import subprocess
+import sys
+import time
+
+from evdev import InputDevice, ecodes
+
+wake_action = "/usr/libexec/gts9wifi-power-key-wake"
+rescan_seconds = 5
+wake_timeout = 10
+
+
+def log(message):
+    print(message, file=sys.stderr, flush=True)
+
+
+def is_wake_gesture_device(dev):
+    caps = dev.capabilities()
+    if ecodes.KEY_WAKEUP not in caps.get(ecodes.EV_KEY, []):
+        return False
+    axes = [code for code, _ in caps.get(ecodes.EV_ABS, [])]
+    return ecodes.ABS_MT_POSITION_X in axes or ecodes.ABS_X in axes
+
+
+def scan(devices):
+    """Open every wake-gesture device that is not open already."""
+    for path in sorted(glob.glob("/dev/input/event*")):
+        if path in devices:
+            continue
+        try:
+            dev = InputDevice(path)
+        except OSError:
+            continue
+        if is_wake_gesture_device(dev):
+            devices[path] = dev
+        else:
+            dev.close()
+
+
+def drop(devices, dev):
+    devices.pop(dev.path, None)
+    try:
+        dev.close()
+    except OSError:
+        pass
+
+
+def wake():
+    try:
+        subprocess.run([wake_action], timeout=wake_timeout,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError) as exc:
+        log("gts9wifi-wake-gesture: %s failed: %s" % (wake_action, exc))
+
+
+def main():
+    devices = {}
+    scan(devices)
+    while True:
+        if not devices:
+            time.sleep(rescan_seconds)
+            scan(devices)
+            continue
+        try:
+            ready, _, _ = select.select(list(devices.values()), [], [],
+                                         rescan_seconds)
+        except OSError:
+            ready = []
+        for dev in ready:
+            try:
+                events = list(dev.read())
+            except BlockingIOError:
+                continue
+            except OSError:
+                # The device went away (a module reload, or a suspend);
+                # pick it up again on the next scan.
+                drop(devices, dev)
+                continue
+            for event in events:
+                if (event.type == ecodes.EV_KEY
+                        and event.code == ecodes.KEY_WAKEUP
+                        and event.value == 1):
+                    wake()
+        # Cheap, and it is what notices a touchscreen that came back after a
+        # reload or a resume.
+        scan(devices)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
